@@ -1,0 +1,16 @@
+// To create a database.
+CREATE DATABASE alarmdb;
+
+// To use and work on that database.
+USE alarmdb;
+
+//To create a table.
+CREATE TABLE alarms (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    alarm_date DATE,
+    alarm_time TIME,
+    am_pm VARCHAR(2)
+);
+
+//To view tables data(rows and coloumns).
+SELECT * FROM alarms;
