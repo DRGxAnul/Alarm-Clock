@@ -1,0 +1,382 @@
+import javax.swing.*;
+import javax.swing.Timer;
+import javax.swing.border.EmptyBorder;
+import javax.sound.sampled.*;
+import java.awt.*;
+import java.awt.event.*;
+import java.text.SimpleDateFormat;
+import java.util.*;
+import java.util.List;
+import java.util.TimerTask;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.SQLException;
+
+public class AlarmClockGUI extends JFrame {
+    private final JLabel currentTimeLabel;
+    private final DefaultListModel<String> alarmListModel;
+    private final JList<String> alarmList;
+    private final List<Date> alarms;
+
+    private final JButton removeAlarmButton;
+
+    private final JSpinner dateSpinner;
+    private final JSpinner hourSpinner;
+    private final JSpinner minuteSpinner;
+    private final JComboBox<String> amPmCombo;
+
+    private final SimpleDateFormat timeFormat = new SimpleDateFormat("hh:mm:ss a");
+    private final SimpleDateFormat dateTimeFormat = new SimpleDateFormat("yyyy-MM-dd hh:mm a");
+
+    private Clip clip;
+
+    // MySQL Database connection
+    private Connection connection;
+
+    public AlarmClockGUI() {
+        setTitle("Alarm Clock");
+        setDefaultCloseOperation(EXIT_ON_CLOSE);
+        setSize(600, 520);
+        setLocationRelativeTo(null);
+        setResizable(false);
+
+        alarms = new ArrayList<>();
+
+        // Connect to MySQL database
+        connectToDatabase();
+
+        JPanel mainPanel = new JPanel(new BorderLayout(15, 15));
+        mainPanel.setBackground(new Color(35, 40, 45));
+        mainPanel.setBorder(new EmptyBorder(20, 20, 20, 20));
+        setContentPane(mainPanel);
+
+        JPanel timePanel = new JPanel();
+        timePanel.setBackground(new Color(35, 40, 45));
+        currentTimeLabel = new JLabel();
+        currentTimeLabel.setFont(new Font("Segoe UI", Font.BOLD, 50));
+        currentTimeLabel.setForeground(new Color(230, 230, 230));
+        timePanel.add(currentTimeLabel);
+        mainPanel.add(timePanel, BorderLayout.NORTH);
+
+        JPanel centerPanel = new JPanel(new BorderLayout(15, 15));
+        centerPanel.setBackground(new Color(35, 40, 45));
+        mainPanel.add(centerPanel, BorderLayout.CENTER);
+
+        JPanel alarmSettingPanel = new JPanel();
+        alarmSettingPanel.setBackground(new Color(60, 63, 65));
+        alarmSettingPanel.setBorder(BorderFactory.createTitledBorder(BorderFactory.createLineBorder(new Color(100, 150, 255)), "Set Alarm", 0, 0, new Font("Segoe UI", Font.BOLD, 20), new Color(180, 210, 255)));
+        alarmSettingPanel.setLayout(new FlowLayout(FlowLayout.CENTER, 20, 20));
+
+        Calendar calendar = Calendar.getInstance();
+        calendar.set(Calendar.HOUR_OF_DAY, 0);
+        calendar.set(Calendar.MINUTE, 0);
+        calendar.set(Calendar.SECOND, 0);
+        calendar.set(Calendar.MILLISECOND, 0);
+        Date initDate = calendar.getTime();
+
+        SpinnerDateModel dateModel = new SpinnerDateModel(initDate, null, null, Calendar.DAY_OF_MONTH);
+        dateSpinner = new JSpinner(dateModel);
+        JSpinner.DateEditor dateEditor = new JSpinner.DateEditor(dateSpinner, "yyyy-MM-dd");
+        dateSpinner.setEditor(dateEditor);
+        dateSpinner.setPreferredSize(new Dimension(160, 40));
+        alarmSettingPanel.add(new JLabel("Date:"));
+        alarmSettingPanel.add(dateSpinner);
+
+        SpinnerNumberModel hourModel = new SpinnerNumberModel(12, 1, 12, 1);
+        hourSpinner = new JSpinner(hourModel);
+        hourSpinner.setPreferredSize(new Dimension(70, 40));
+        alarmSettingPanel.add(new JLabel("Hour:"));
+        alarmSettingPanel.add(hourSpinner);
+
+        SpinnerNumberModel minuteModel = new SpinnerNumberModel(0, 0, 59, 1);
+        minuteSpinner = new JSpinner(minuteModel);
+        minuteSpinner.setPreferredSize(new Dimension(70, 40));
+        alarmSettingPanel.add(new JLabel("Minutes:"));
+        alarmSettingPanel.add(minuteSpinner);
+
+        String[] amPmOptions = { "AM", "PM" };
+        amPmCombo = new JComboBox<>(amPmOptions);
+        amPmCombo.setPreferredSize(new Dimension(80, 40));
+        alarmSettingPanel.add(new JLabel("AM/PM:"));
+        alarmSettingPanel.add(amPmCombo);
+
+        JButton addAlarmButton = new JButton("Add Alarm");
+        addAlarmButton.setBackground(new Color(50, 115, 220));
+        addAlarmButton.setForeground(Color.WHITE);
+        addAlarmButton.setFocusPainted(false);
+        addAlarmButton.setFont(new Font("Segoe UI", Font.BOLD, 18));
+        addAlarmButton.setPreferredSize(new Dimension(140, 45));
+        alarmSettingPanel.add(addAlarmButton);
+
+        centerPanel.add(alarmSettingPanel, BorderLayout.NORTH);
+
+        JPanel alarmsPanel = new JPanel(new BorderLayout(10, 10));
+        alarmsPanel.setBackground(new Color(60, 63, 65));
+        alarmsPanel.setBorder(BorderFactory.createTitledBorder(BorderFactory.createLineBorder(new Color(100, 150, 255)), "Set Alarms", 0, 0, new Font("Segoe UI", Font.BOLD, 20), new Color(180, 210, 255)));
+
+        alarmListModel = new DefaultListModel<>();
+        alarmList = new JList<>(alarmListModel);
+        alarmList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        alarmList.setFont(new Font("Segoe UI", Font.PLAIN, 18));
+        alarmList.setBackground(new Color(80, 83, 85));
+        alarmList.setForeground(Color.WHITE);
+        JScrollPane scrollPane = new JScrollPane(alarmList);
+        scrollPane.setPreferredSize(new Dimension(550, 260));
+        alarmsPanel.add(scrollPane, BorderLayout.CENTER);
+
+        removeAlarmButton = new JButton("Remove Selected");
+        removeAlarmButton.setBackground(new Color(220, 50, 50));
+        removeAlarmButton.setForeground(Color.WHITE);
+        removeAlarmButton.setFocusPainted(false);
+        removeAlarmButton.setFont(new Font("Segoe UI", Font.BOLD, 18));
+        removeAlarmButton.setPreferredSize(new Dimension(180, 45));
+        removeAlarmButton.setEnabled(false);
+
+        alarmsPanel.add(removeAlarmButton, BorderLayout.SOUTH);
+
+        centerPanel.add(alarmsPanel, BorderLayout.CENTER);
+
+        // Update current time every second
+        Timer timer = new Timer(1000, e -> updateCurrentTime());
+        timer.start();
+
+        java.util.Timer alarmCheckTimer = new java.util.Timer(true);
+        alarmCheckTimer.scheduleAtFixedRate(new TimerTask() {
+            @Override
+            public void run() {
+                checkAlarms();
+            }
+        }, 0, 1000);
+
+        addAlarmButton.addActionListener(e -> addAlarm());
+
+        removeAlarmButton.addActionListener(e -> removeSelectedAlarm());
+
+        alarmList.addListSelectionListener(e -> {
+            removeAlarmButton.setEnabled(!alarmList.isSelectionEmpty());
+        });
+
+        prepareAudioClip();
+
+        addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowClosing(WindowEvent e) {
+                closeDatabaseConnection();
+                super.windowClosing(e);
+            }
+        });
+
+        setVisible(true);
+    }
+
+
+    private void connectToDatabase() {
+        String url = "jdbc:mysql://localhost:3306/alarmdb?useSSL=false&serverTimezone=UTC";
+        String user = "root";
+        String password = "root";
+
+        try {
+            connection = DriverManager.getConnection(url, user, password);
+            System.out.println("Connected to the database.");
+        } catch (SQLException e) {
+            System.err.println("Connection to database failed: " + e.getMessage());
+        }
+    }
+
+    private void updateCurrentTime() {
+        Date now = new Date();
+        currentTimeLabel.setText(timeFormat.format(now));
+    }
+
+    private void addAlarm() {
+        try {
+            Date date = ((SpinnerDateModel) dateSpinner.getModel()).getDate();
+
+            int hour = (Integer) hourSpinner.getValue();
+            int minute = (Integer) minuteSpinner.getValue();
+            String amPm = (String) amPmCombo.getSelectedItem();
+
+            // Convert hour to 24-hour format
+            if (amPm.equals("PM") && hour < 12) {
+                hour += 12;
+            } else if (amPm.equals("AM") && hour == 12) {
+                hour = 0;
+            }
+
+            Calendar cal = Calendar.getInstance();
+            cal.setTime(date);
+            cal.set(Calendar.HOUR_OF_DAY, hour);
+            cal.set(Calendar.MINUTE, minute);
+            cal.set(Calendar.SECOND, 0);
+            cal.set(Calendar.MILLISECOND, 0);
+
+            // Convert calendar time to UTC before saving
+            // First get time in local timezone
+            Date localAlarmTime = cal.getTime();
+
+            // Create a calendar with UTC timezone and set the time to localAlarmTime
+            Calendar utcCal = Calendar.getInstance(TimeZone.getTimeZone("UTC"));
+            utcCal.setTime(localAlarmTime);
+
+            Date alarmDateTimeUtc = utcCal.getTime();
+
+            Date now = new Date();
+            if (alarmDateTimeUtc.before(now)) {
+                JOptionPane.showMessageDialog(this, "Please select a future date and time for the alarm.", "Invalid Alarm Time", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+
+            for (Date d : alarms) {
+                if (d.equals(alarmDateTimeUtc)) {
+                    JOptionPane.showMessageDialog(this, "This alarm is already set.", "Duplicate Alarm", JOptionPane.WARNING_MESSAGE);
+                    return;
+                }
+            }
+
+            alarms.add(alarmDateTimeUtc);
+            Collections.sort(alarms);
+            refreshAlarmList();
+
+            // Save alarm to MySQL database
+            saveAlarmToDatabase(alarmDateTimeUtc);
+
+        } catch (Exception ex) {
+            JOptionPane.showMessageDialog(this, "Invalid date or time input.", "Error", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private void refreshAlarmList() {
+        alarmListModel.clear();
+        // Display alarms in local timezone for user friendly view
+        SimpleDateFormat displayFormat = new SimpleDateFormat("yyyy-MM-dd hh:mm a");
+        displayFormat.setTimeZone(TimeZone.getDefault()); // local timezone
+        for (Date d : alarms) {
+            alarmListModel.addElement(displayFormat.format(d));
+        }
+    }
+
+    private void removeSelectedAlarm() {
+        int selectedIndex = alarmList.getSelectedIndex();
+        if (selectedIndex != -1) {
+            alarms.remove(selectedIndex);
+            refreshAlarmList();
+            // Optional: remove alarm from DB if you want to keep DB in sync
+        }
+    }
+
+    private void checkAlarms() {
+        Date now = new Date();
+        Calendar nowCal = Calendar.getInstance();
+        nowCal.setTime(now);
+        nowCal.set(Calendar.SECOND, 0);
+        nowCal.set(Calendar.MILLISECOND, 0);
+        Date nowRounded = nowCal.getTime();
+
+        List<Date> triggeredAlarms = new ArrayList<>();
+        for (Date alarm : alarms) {
+            Calendar alarmCal = Calendar.getInstance();
+            alarmCal.setTime(alarm);
+            alarmCal.set(Calendar.SECOND, 0);
+            alarmCal.set(Calendar.MILLISECOND, 0);
+            Date alarmRounded = alarmCal.getTime();
+
+            if (alarmRounded.equals(nowRounded)) {
+                triggeredAlarms.add(alarm);
+            }
+        }
+
+        for (Date alarm : triggeredAlarms) {
+            alarms.remove(alarm);
+            SwingUtilities.invokeLater(() -> {
+                refreshAlarmList();
+                playAlarmSound();
+                JOptionPane.showMessageDialog(AlarmClockGUI.this, "Alarm ringing: " + dateTimeFormat.format(alarm), "Alarm", JOptionPane.INFORMATION_MESSAGE);
+            });
+            // Optional: remove alarm from DB if you want
+        }
+    }
+
+
+    private void saveAlarmToDatabase(Date alarmDateTime) {
+        if (connection == null) return;
+
+        String sql = "INSERT INTO alarms (alarm_date, alarm_time, am_pm) VALUES (?, ?, ?)";
+
+        try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
+            Calendar calendar = Calendar.getInstance();
+            calendar.setTime(alarmDateTime);
+
+
+            java.sql.Date sqlDate = new java.sql.Date(calendar.getTimeInMillis());
+            java.sql.Time sqlTime = new java.sql.Time(calendar.getTimeInMillis());
+            String amPm = (calendar.get(Calendar.AM_PM) == Calendar.AM) ? "AM" : "PM";
+
+            pstmt.setDate(1, sqlDate);
+            pstmt.setTime(2, sqlTime);
+            pstmt.setString(3, amPm);
+
+            pstmt.executeUpdate();
+            System.out.println("Alarm saved to database.");
+        } catch (SQLException e) {
+            System.err.println("Error saving alarm: " + e.getMessage());
+        }
+    }
+
+
+    private void closeDatabaseConnection() {
+        if (connection != null) {
+            try {
+                connection.close();
+                System.out.println("Database connection closed.");
+            } catch (SQLException e) {
+                System.err.println("Error closing database connection: " + e.getMessage());
+            }
+        }
+    }
+
+    private void prepareAudioClip() {
+        try {
+            int durationMs = 3000;
+            float sampleRate = 44100;
+            int numSamples = (int)(durationMs * sampleRate / 1000);
+            byte[] buf = new byte[2 * numSamples];
+            double freq = 1000;
+
+            for (int i = 0; i < numSamples; i++) {
+                double angle = 2.0 * Math.PI * i * freq / sampleRate;
+                short val = (short)(Math.sin(angle) * 32767);
+                buf[2*i] = (byte)(val & 0xFF);
+                buf[2*i+1] = (byte)((val >> 8) & 0xFF);
+            }
+
+            AudioFormat af = new AudioFormat(sampleRate, 16, 1, true, false);
+            clip = AudioSystem.getClip();
+            clip.open(af, buf, 0, buf.length);
+        } catch (Exception e) {
+            clip = null;
+            System.err.println("Error preparing audio clip: " + e.getMessage());
+        }
+    }
+
+    private void playAlarmSound() {
+        if (clip == null) return;
+        if (clip.isRunning()) clip.stop();
+        clip.setFramePosition(0);
+        clip.start();
+    }
+
+    public static void main(String[] args) {
+        try {
+            for (UIManager.LookAndFeelInfo info : UIManager.getInstalledLookAndFeels()) {
+                if ("Nimbus".equals(info.getName())) {
+                    UIManager.setLookAndFeel(info.getClassName());
+                    break;
+                }
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        SwingUtilities.invokeLater(() -> new AlarmClockGUI());
+    }
+}
